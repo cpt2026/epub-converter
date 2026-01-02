@@ -1,179 +1,658 @@
 <!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Client-only Upload & Download (IndexedDB)</title>
-  <style>
-    body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Arial; max-width:900px; margin:1rem auto; padding:1rem; }
-    header { display:flex; gap:1rem; align-items:center; }
-    button { cursor: pointer; }
-    ul { list-style:none; padding-left:0; }
-    li { margin-bottom:.5rem; display:flex; gap:1rem; align-items:center; }
-    .meta { color:#666; font-size:.9rem; }
-    .controls { margin-left:auto; display:flex; gap:.5rem; }
-    .notice { background:#fffae6; border:1px solid #ffe58f; padding:.5rem; margin-bottom:1rem; }
-  </style>
-</head>
-<body>
-  <header>
-    <h1>Client-only Upload & Download</h1>
-  </header>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>EPUB 簡體→繁體 轉換器（本機處理）</title>
+    <meta
+      name="description"
+      content="在瀏覽器內將簡體中文 EPUB 轉換為繁體中文 EPUB，解壓、轉換內容檔、重新打包下載。全程本機處理，不上傳檔案。"
+    />
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #0b0f17;
+        --card: rgba(255, 255, 255, 0.06);
+        --border: rgba(255, 255, 255, 0.12);
+        --text: rgba(255, 255, 255, 0.92);
+        --muted: rgba(255, 255, 255, 0.7);
+        --accent: #7c5cff;
+        --danger: #ff4d4f;
+        --ok: #2ecc71;
+        --shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+      }
 
-  <p class="notice">Files are stored locally in your browser (IndexedDB). No server or installation required. Files are only available on this device and browser profile.</p>
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #f6f7fb;
+          --card: rgba(0, 0, 0, 0.04);
+          --border: rgba(0, 0, 0, 0.12);
+          --text: rgba(0, 0, 0, 0.9);
+          --muted: rgba(0, 0, 0, 0.65);
+          --shadow: 0 20px 60px rgba(0, 0, 0, 0.08);
+        }
+      }
 
-  <section>
-    <form id="uploadForm">
-      <input type="file" id="fileInput" required />
-      <button type="submit">Store file locally</button>
-    </form>
-    <div id="status" aria-live="polite"></div>
-  </section>
+      * {
+        box-sizing: border-box;
+      }
 
-  <section>
-    <h2>Stored files</h2>
-    <ul id="fileList"></ul>
-    <p id="emptyMsg">No files stored yet.</p>
-  </section>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family:
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          Segoe UI,
+          Roboto,
+          Noto Sans,
+          PingFang TC,
+          Microsoft JhengHei,
+          Helvetica,
+          Arial,
+          "Apple Color Emoji",
+          "Segoe UI Emoji";
+        color: var(--text);
+        background:
+          radial-gradient(1200px 800px at 18% -10%, rgba(124, 92, 255, 0.22), transparent 55%),
+          radial-gradient(900px 600px at 85% 15%, rgba(46, 204, 113, 0.14), transparent 55%),
+          var(--bg);
+      }
 
-  <script>
-    // Minimal IndexedDB helper
-    const DB_NAME = 'local-files-db-v1';
-    const STORE_NAME = 'files';
+      a {
+        color: inherit;
+      }
 
-    function openDb() {
-      return new Promise((resolve, reject) => {
-        const req = indexedDB.open(DB_NAME, 1);
-        req.onupgradeneeded = () => {
-          const db = req.result;
-          if (!db.objectStoreNames.contains(STORE_NAME)) {
-            db.createObjectStore(STORE_NAME, { keyPath: 'id' });
-          }
-        };
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error);
-      });
-    }
+      .container {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 28px 18px 48px;
+      }
 
-    async function addFile(entry) {
-      const db = await openDb();
-      return new Promise((resolve, reject) => {
-        const tx = db.transaction(STORE_NAME, 'readwrite');
-        const store = tx.objectStore(STORE_NAME);
-        store.add(entry);
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error || 'add failed');
-      });
-    }
+      header {
+        display: flex;
+        gap: 16px;
+        align-items: flex-start;
+        justify-content: space-between;
+        margin-bottom: 18px;
+      }
 
-    async function getAllFiles() {
-      const db = await openDb();
-      return new Promise((resolve, reject) => {
-        const tx = db.transaction(STORE_NAME, 'readonly');
-        const store = tx.objectStore(STORE_NAME);
-        const req = store.getAll();
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error);
-      });
-    }
+      .title {
+        margin: 0;
+        font-size: 22px;
+        letter-spacing: 0.2px;
+      }
 
-    async function deleteFile(id) {
-      const db = await openDb();
-      return new Promise((resolve, reject) => {
-        const tx = db.transaction(STORE_NAME, 'readwrite');
-        tx.objectStore(STORE_NAME).delete(id);
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-      });
-    }
+      .subtitle {
+        margin: 6px 0 0;
+        color: var(--muted);
+        line-height: 1.5;
+        font-size: 13px;
+      }
 
-    function formatBytes(n) {
-      if (n < 1024) return n + ' B';
-      if (n < 1024*1024) return Math.round(n/1024) + ' KB';
-      return (n / (1024*1024)).toFixed(2) + ' MB';
-    }
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.04);
+        box-shadow: var(--shadow);
+        font-size: 12px;
+        color: var(--muted);
+        white-space: nowrap;
+      }
 
-    async function refreshList() {
-      const list = document.getElementById('fileList');
-      const empty = document.getElementById('emptyMsg');
-      list.innerHTML = '';
-      try {
-        const files = await getAllFiles();
-        if (!files.length) {
-          empty.style.display = '';
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: var(--ok);
+        box-shadow: 0 0 0 6px rgba(46, 204, 113, 0.12);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: 1.15fr 0.85fr;
+        gap: 14px;
+      }
+
+      @media (max-width: 920px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+        header {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+      }
+
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        box-shadow: var(--shadow);
+        padding: 16px;
+      }
+
+      .row {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+
+      .row > * {
+        flex: 0 0 auto;
+      }
+
+      label {
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      input[type="file"] {
+        width: 100%;
+        padding: 12px;
+        border: 1px dashed var(--border);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      select,
+      button {
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--text);
+        padding: 10px 12px;
+        border-radius: 12px;
+        font-size: 13px;
+      }
+
+      button {
+        cursor: pointer;
+        background: linear-gradient(135deg, rgba(124, 92, 255, 0.95), rgba(124, 92, 255, 0.65));
+        border-color: rgba(124, 92, 255, 0.35);
+      }
+
+      button.secondary {
+        background: rgba(255, 255, 255, 0.04);
+        border-color: var(--border);
+      }
+
+      button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+
+      .hint {
+        color: var(--muted);
+        font-size: 12px;
+        margin: 10px 0 0;
+        line-height: 1.6;
+      }
+
+      .danger {
+        color: var(--danger);
+      }
+
+      .ok {
+        color: var(--ok);
+      }
+
+      .progress {
+        width: 100%;
+        height: 10px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid var(--border);
+        overflow: hidden;
+      }
+
+      .progress > div {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, rgba(124, 92, 255, 0.95), rgba(46, 204, 113, 0.75));
+        transition: width 120ms linear;
+      }
+
+      pre {
+        margin: 10px 0 0;
+        padding: 12px;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        background: rgba(0, 0, 0, 0.18);
+        max-height: 280px;
+        overflow: auto;
+        font-size: 12px;
+        line-height: 1.55;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      .small {
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.04);
+        font-size: 12px;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="container">
+      <header>
+        <div>
+          <h1 class="title">EPUB 簡體→繁體 轉換器</h1>
+          <p class="subtitle">
+            上傳 EPUB → 本機解壓 → 只轉換內容文字（保留標籤/連結/路徑）→ 重新打包下載。<br />
+            檔案不會上傳到任何伺服器；所有處理都在你的瀏覽器內完成。
+          </p>
+        </div>
+        <div class="badge" title="全程本機處理">
+          <span class="dot" aria-hidden="true"></span>
+          <span>Offline / Local Processing</span>
+        </div>
+      </header>
+
+      <div class="grid">
+        <section class="card">
+          <div class="row" style="justify-content: space-between; gap: 10px">
+            <div class="pill">1) 選擇 EPUB</div>
+            <div class="pill">2) 選模式</div>
+            <div class="pill">3) 轉換並下載</div>
+          </div>
+
+          <div style="height: 12px"></div>
+
+          <label for="epubFile">EPUB 檔案（.epub）</label>
+          <input id="epubFile" type="file" accept=".epub,application/epub+zip" />
+
+          <div style="height: 12px"></div>
+
+          <div class="row" style="align-items: flex-end">
+            <div style="min-width: 220px">
+              <label for="mode">轉換模式</label><br />
+              <select id="mode">
+                <option value="s2t" selected>簡體 → 繁體（通用，s2t）</option>
+                <option value="s2tw">簡體 → 台灣正體（s2tw）</option>
+                <option value="s2hk">簡體 → 香港繁體（s2hk）</option>
+              </select>
+            </div>
+
+            <div style="min-width: 240px">
+              <label for="alsoConvertPlain">進階（選用）</label><br />
+              <select id="alsoConvertPlain" title="是否額外轉換純文字檔，例如 .txt / .css / .js 中的中文註解">
+                <option value="no" selected>只轉 EPUB 內容檔（xhtml/html/opf/ncx/xml）</option>
+                <option value="yes">也嘗試轉換純文字檔（txt/css/js/json…）</option>
+              </select>
+            </div>
+
+            <div style="flex: 1 1 auto"></div>
+
+            <button id="convertBtn">開始轉換</button>
+            <button id="resetBtn" class="secondary" type="button">清除狀態</button>
+          </div>
+
+          <p class="hint">
+            注意：若 EPUB 內文字不是 UTF-8（少數情況），瀏覽器讀取成字串時可能會出現亂碼；此工具會盡量保留結構，但無法自動判斷所有編碼。
+          </p>
+
+          <div style="height: 12px"></div>
+
+          <div class="progress" aria-label="進度">
+            <div id="progressBar"></div>
+          </div>
+          <div class="row" style="justify-content: space-between; margin-top: 8px">
+            <div id="status" class="small">等待上傳 EPUB…</div>
+            <div id="counts" class="small"></div>
+          </div>
+
+          <pre id="log" aria-label="紀錄"></pre>
+        </section>
+
+        <aside class="card">
+          <div class="pill">說明</div>
+          <p class="hint" style="margin-top: 10px">
+            會處理的檔案類型（預設）：<br />
+            <span class="small">.xhtml / .html / .htm / .opf / .ncx / .xml / .svg</span>
+          </p>
+          <p class="hint">
+            工具會「解析文件 → 只轉換文字節點」，避免把標籤、連結、id、檔案路徑等不該變動的部分改壞。
+          </p>
+          <p class="hint">
+            若你勾選「也嘗試轉換純文字檔」，會把部分純文字檔整段做簡轉繁（可能影響程式碼字串/註解），請自行評估。
+          </p>
+          <p class="hint">
+            使用的前端套件：<br />
+            <span class="small">JSZip（解壓/打包）</span><br />
+            <span class="small">opencc-js（簡轉繁）</span><br />
+            <span class="small">FileSaver（下載檔案）</span>
+          </p>
+          <p class="hint danger" id="libWarning" style="display: none">
+            套件載入失敗。請確認網路可連線或 CDN 未被阻擋。
+          </p>
+        </aside>
+      </div>
+    </div>
+
+    <!-- Dependencies (CDN) -->
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/opencc-js@1.0.5/dist/umd/full.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+
+      const epubFile = $("epubFile");
+      const mode = $("mode");
+      const alsoConvertPlain = $("alsoConvertPlain");
+      const convertBtn = $("convertBtn");
+      const resetBtn = $("resetBtn");
+      const progressBar = $("progressBar");
+      const statusEl = $("status");
+      const countsEl = $("counts");
+      const logEl = $("log");
+      const libWarning = $("libWarning");
+
+      function nowTime() {
+        const d = new Date();
+        return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      }
+
+      function log(line) {
+        const msg = `[${nowTime()}] ${line}`;
+        logEl.textContent = (logEl.textContent ? logEl.textContent + "\n" : "") + msg;
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      function setStatus(text, kind = "") {
+        statusEl.textContent = text;
+        statusEl.className = "small " + kind;
+      }
+
+      function setProgress(done, total) {
+        if (!total) {
+          progressBar.style.width = "0%";
+          countsEl.textContent = "";
           return;
         }
-        empty.style.display = 'none';
-        files.reverse().forEach(f => {
-          const li = document.createElement('li');
-          const name = document.createElement('span');
-          name.textContent = f.name + ' (' + formatBytes(f.size) + ')';
-          const meta = document.createElement('span');
-          meta.className = 'meta';
-          meta.textContent = ' uploaded ' + new Date(f.uploadedAt).toLocaleString();
+        const pct = Math.max(0, Math.min(100, Math.round((done / total) * 100)));
+        progressBar.style.width = pct + "%";
+        countsEl.textContent = `${done}/${total}`;
+      }
 
-          const controls = document.createElement('div');
-          controls.className = 'controls';
+      function isProbablyTextFile(name) {
+        const lower = name.toLowerCase();
+        const ext = lower.includes(".") ? lower.split(".").pop() : "";
+        const textExt = new Set([
+          "txt",
+          "css",
+          "js",
+          "json",
+          "md",
+          "csv",
+          "tsv",
+          "yaml",
+          "yml",
+          "map",
+        ]);
+        return textExt.has(ext);
+      }
 
-          const dl = document.createElement('a');
-          dl.href = URL.createObjectURL(f.blob);
-          dl.download = f.name;
-          dl.textContent = 'Download';
-          dl.addEventListener('click', () => setTimeout(() => URL.revokeObjectURL(dl.href), 1000));
+      function isEpubContentDoc(name) {
+        const lower = name.toLowerCase();
+        const ext = lower.includes(".") ? lower.split(".").pop() : "";
+        return ["xhtml", "html", "htm", "opf", "ncx", "xml", "svg"].includes(ext);
+      }
 
-          const del = document.createElement('button');
-          del.textContent = 'Delete';
-          del.addEventListener('click', async () => {
-            if (!confirm('Delete "' + f.name + '"?')) return;
-            await deleteFile(f.id);
-            await refreshList();
+      function getExt(name) {
+        const lower = name.toLowerCase();
+        return lower.includes(".") ? lower.split(".").pop() : "";
+      }
+
+      function getPrologue(original) {
+        const xmlDecl = original.match(/^\s*(<\?xml[^>]*\?>\s*)/i)?.[1] ?? "";
+        const doctype = original.match(/^\s*(<!doctype[^>]*>\s*)/i)?.[1] ?? "";
+        // XML doctype (rare in EPUB but possible)
+        const xmlDoctype =
+          !doctype && original.match(/^\s*(<!DOCTYPE[^>]*>\s*)/)?.[1] ? original.match(/^\s*(<!DOCTYPE[^>]*>\s*)/)?.[1] : "";
+        return { xmlDecl, doctype: doctype || xmlDoctype || "" };
+      }
+
+      function convertDocumentString(input, converter, ext) {
+        // 盡量用 DOM 方式只轉換「文字節點」，避免破壞標籤與屬性。
+        const { xmlDecl, doctype } = getPrologue(input);
+        const parser = new DOMParser();
+
+        const tryParse = (mime) => {
+          const doc = parser.parseFromString(input, mime);
+          const hasParserError = doc.getElementsByTagName("parsererror").length > 0;
+          return { doc, hasParserError };
+        };
+
+        const preferredMime =
+          ext === "xhtml" ? "application/xhtml+xml" : ext === "html" || ext === "htm" ? "text/html" : "application/xml";
+
+        let { doc, hasParserError } = tryParse(preferredMime);
+        if (hasParserError && preferredMime !== "text/html") {
+          ({ doc, hasParserError } = tryParse("text/html"));
+        }
+
+        // 最後手段：直接整段轉換（可能改到不該改的地方）
+        if (hasParserError || !doc || !doc.documentElement) {
+          return converter(input);
+        }
+
+        const shouldSkipElement = (el) => {
+          const tag = (el.tagName || "").toUpperCase();
+          return tag === "SCRIPT" || tag === "STYLE";
+        };
+
+        const maybeConvertAttr = (el, attr) => {
+          if (!el.hasAttribute || !el.hasAttribute(attr)) return;
+          const v = el.getAttribute(attr);
+          if (v == null || v === "") return;
+          el.setAttribute(attr, converter(v));
+        };
+
+        const walk = (node) => {
+          if (!node) return;
+          if (node.nodeType === Node.TEXT_NODE) {
+            const v = node.nodeValue;
+            if (v) node.nodeValue = converter(v);
+            return;
+          }
+          if (node.nodeType === Node.ELEMENT_NODE) {
+            const el = node;
+            if (shouldSkipElement(el)) return;
+
+            // 常見會出現中文的屬性
+            maybeConvertAttr(el, "alt");
+            maybeConvertAttr(el, "title");
+            maybeConvertAttr(el, "aria-label");
+            maybeConvertAttr(el, "placeholder");
+
+            // EPUB/HTML 常見 meta
+            const tag = (el.tagName || "").toUpperCase();
+            if (tag === "META") {
+              const name = (el.getAttribute("name") || "").toLowerCase();
+              if (name === "description" || name === "keywords") {
+                maybeConvertAttr(el, "content");
+              }
+            }
+          }
+
+          const kids = node.childNodes;
+          for (let i = 0; i < kids.length; i++) walk(kids[i]);
+        };
+
+        walk(doc.documentElement);
+
+        let serialized = "";
+        if (preferredMime === "text/html" || ext === "html" || ext === "htm") {
+          const html = doc.documentElement?.outerHTML ?? "";
+          serialized = (doctype ? doctype : "<!doctype html>\n") + html;
+        } else {
+          serialized = new XMLSerializer().serializeToString(doc);
+          // 保留原本的 XML 宣告/DOCTYPE（如果有）
+          if (xmlDecl && !/^\s*<\?xml/i.test(serialized)) serialized = xmlDecl + serialized;
+          if (doctype && !/^\s*<!DOCTYPE/i.test(serialized.replace(xmlDecl, ""))) serialized = xmlDecl + doctype + serialized.replace(xmlDecl, "");
+        }
+
+        return serialized;
+      }
+
+      function buildOpenCCConverter(selectedMode) {
+        if (!window.OpenCC || typeof window.OpenCC.Converter !== "function") {
+          throw new Error("opencc-js 未載入或 API 不符合預期");
+        }
+        // OpenCC.Converter({ from, to })：
+        // - from: 'cn' 表示「簡體」來源
+        // - to:   't'  表示輸出為「通用繁體」（只做簡→繁）
+        // - to:  'tw'/'hk' 表示輸出為台灣/香港用字（先簡→繁，再繁→地區用字）
+        const to = selectedMode === "s2t" ? "t" : selectedMode === "s2tw" ? "tw" : "hk";
+        return window.OpenCC.Converter({ from: "cn", to });
+      }
+
+      function outputNameFor(inputName, selectedMode) {
+        const base = inputName.replace(/\.epub$/i, "");
+        const suffix = selectedMode === "s2t" ? "s2t" : selectedMode === "s2tw" ? "s2tw" : "s2hk";
+        return `${base}.${suffix}.epub`;
+      }
+
+      function resetUI() {
+        logEl.textContent = "";
+        setStatus("等待上傳 EPUB…");
+        setProgress(0, 0);
+        epubFile.value = "";
+        convertBtn.disabled = false;
+      }
+
+      resetBtn.addEventListener("click", resetUI);
+
+      function checkLibs() {
+        const ok = window.JSZip && window.OpenCC && window.saveAs;
+        libWarning.style.display = ok ? "none" : "block";
+        return ok;
+      }
+
+      checkLibs();
+
+      convertBtn.addEventListener("click", async () => {
+        try {
+          if (!checkLibs()) {
+            setStatus("套件載入失敗，請檢查網路或 CDN。", "danger");
+            return;
+          }
+          const file = epubFile.files?.[0];
+          if (!file) {
+            setStatus("請先選擇一個 .epub 檔案。", "danger");
+            return;
+          }
+          const selectedMode = mode.value;
+          const convertPlain = alsoConvertPlain.value === "yes";
+
+          convertBtn.disabled = true;
+          setStatus("讀取檔案中…");
+          log(`開始：${file.name}`);
+          log(`模式：${selectedMode}；純文字檔：${convertPlain ? "也轉換" : "不轉換"}`);
+
+          const converter = buildOpenCCConverter(selectedMode);
+
+          const buf = await file.arrayBuffer();
+          const zip = await JSZip.loadAsync(buf);
+
+          const allNames = Object.keys(zip.files).filter((n) => !zip.files[n].dir);
+          const total = allNames.length;
+          let done = 0;
+          let converted = 0;
+          let copied = 0;
+
+          setStatus("解壓並轉換中…");
+          setProgress(0, total);
+
+          // 建立新 zip，確保 mimetype 第一個且不壓縮（EPUB 規範）
+          const newZip = new JSZip();
+
+          const mimetypeFile = zip.file("mimetype");
+          const mimetypeValue = mimetypeFile ? await mimetypeFile.async("string") : "application/epub+zip";
+          newZip.file("mimetype", mimetypeValue, { compression: "STORE" });
+
+          for (const name of allNames) {
+            if (name === "mimetype") {
+              done++;
+              setProgress(done, total);
+              continue;
+            }
+
+            const ext = getExt(name);
+            const shouldConvert = isEpubContentDoc(name) || (convertPlain && isProbablyTextFile(name));
+
+            try {
+              if (shouldConvert) {
+                const original = await zip.file(name).async("string");
+                const out = isEpubContentDoc(name)
+                  ? convertDocumentString(original, converter, ext)
+                  : converter(original);
+                newZip.file(name, out, { compression: "DEFLATE" });
+                converted++;
+              } else {
+                const bin = await zip.file(name).async("arraybuffer");
+                newZip.file(name, bin, { binary: true, compression: "DEFLATE" });
+                copied++;
+              }
+            } catch (e) {
+              // 若單檔處理失敗，盡量退回「原檔照拷」，避免整體失敗
+              log(`警告：處理失敗，改為原檔保留：${name}`);
+              const bin = await zip.file(name).async("arraybuffer");
+              newZip.file(name, bin, { binary: true, compression: "DEFLATE" });
+              copied++;
+            }
+
+            done++;
+            if (done % 5 === 0 || done === total) {
+              setProgress(done, total);
+              setStatus(`處理中…（已完成 ${done}/${total}）`);
+              await new Promise((r) => setTimeout(r, 0)); // 讓 UI 有機會更新
+            }
+          }
+
+          setStatus("重新打包中…");
+          log(`轉換完成：${converted} 個檔案；保留原檔：${copied} 個檔案`);
+
+          const outBlob = await newZip.generateAsync({
+            type: "blob",
+            mimeType: "application/epub+zip",
+            compression: "DEFLATE",
+            streamFiles: true,
           });
 
-          controls.appendChild(dl);
-          controls.appendChild(del);
-
-          li.appendChild(name);
-          li.appendChild(meta);
-          li.appendChild(controls);
-          list.appendChild(li);
-        });
-      } catch (err) {
-        console.error(err);
-        document.getElementById('status').textContent = 'Failed to read stored files.';
-      }
-    }
-
-    document.getElementById('uploadForm').addEventListener('submit', async (ev) => {
-      ev.preventDefault();
-      const input = document.getElementById('fileInput');
-      const status = document.getElementById('status');
-      if (!input.files || !input.files.length) return;
-      const file = input.files[0];
-      status.textContent = 'Storing...';
-      try {
-        // Read file as Blob (we can store the Blob directly)
-        const blob = file.slice(0, file.size);
-        const id = (crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now().toString() + '-' + Math.random().toString(36).slice(2));
-        const entry = {
-          id,
-          name: file.name,
-          type: file.type,
-          size: file.size,
-          uploadedAt: new Date().toISOString(),
-          blob
-        };
-        await addFile(entry);
-        status.textContent = 'Stored "' + file.name + '".';
-        input.value = '';
-        await refreshList();
-      } catch (err) {
-        console.error(err);
-        status.textContent = 'Failed to store file.';
-      }
-    });
-
-    // initial load
-    refreshList();
-  </script>
-</body>
+          const outName = outputNameFor(file.name, selectedMode);
+          saveAs(outBlob, outName);
+          setProgress(total, total);
+          setStatus(`完成：已下載 ${outName}`, "ok");
+          log(`完成：${outName}`);
+        } catch (err) {
+          console.error(err);
+          setStatus("轉換失敗，請查看紀錄。", "danger");
+          log(`錯誤：${err?.message || String(err)}`);
+        } finally {
+          convertBtn.disabled = false;
+        }
+      });
+    </script>
+  </body>
 </html>
